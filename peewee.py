@@ -196,20 +196,42 @@ except ImportError:
 
     def sort_models_topologically(models):
         """Sort models topologically so that parents will precede children."""
-        models = set(models)
-        seen = set()
         ordering = []
-        def dfs(model):
-            if model in models and model not in seen:
-                seen.add(model)
-                for foreign_key in model._meta.reverse_rel.values():
-                    dfs(foreign_key.model_class)
-                ordering.append(model)  # parent will follow descendants
-        # Order models by name and table initially to guarantee total ordering.
-        names = lambda m: (m._meta.name, m._meta.db_table)
-        for m in sorted(models, key=names, reverse=True):
-            dfs(m)
-        return list(reversed(ordering))
+        dependencies = []
+
+        def is_free(model, dependencies):
+            for _, m in dependencies:
+                if issubclass(m, model):
+                    return False
+            return True
+
+        # Collect dependencies
+        for model in models:
+            foreign_keys = set(fk.model_class for fk in model._meta.reverse_rel.values()
+                               if not issubclass(fk.model_class, model))
+            for foreign_key in foreign_keys:
+                # Note: we are looking at reverse relationship,
+                # hence model is needed by the foreign_key.
+                dependencies.append((model, foreign_key))
+
+        resolved = set(m for m in models if is_free(m, dependencies))
+
+        # Resolve dependencies
+        while resolved:
+            current = resolved.pop()
+            ordering.append(current)
+
+            for dependency in list(dependencies):
+                required, candidate = dependency
+                if issubclass(current, required):
+                    dependencies.remove(dependency)
+                    if is_free(candidate, dependencies):
+                        resolved.add(candidate)
+
+        if dependencies:
+            raise PeeweeException("Models have a cyclic dependency")
+
+        return ordering
 
     def strip_parens(s):
         # Quick sanity check.
