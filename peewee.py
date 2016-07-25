@@ -182,7 +182,6 @@ except ImportError:
 
 try:
     from playhouse._speedups import format_date_time
-    from playhouse._speedups import sort_models_topologically
     from playhouse._speedups import strip_parens
 except ImportError:
     def format_date_time(value, formats, post_process=None):
@@ -193,45 +192,6 @@ except ImportError:
             except ValueError:
                 pass
         return value
-
-    def sort_models_topologically(models):
-        """Sort models topologically so that parents will precede children."""
-        ordering = []
-        dependencies = []
-
-        def is_free(model, dependencies):
-            for _, m in dependencies:
-                if issubclass(m, model):
-                    return False
-            return True
-
-        # Collect dependencies
-        for model in models:
-            foreign_keys = set(fk.model_class for fk in model._meta.reverse_rel.values()
-                               if not issubclass(fk.model_class, model))
-            for foreign_key in foreign_keys:
-                # Note: we are looking at reverse relationship,
-                # hence model is needed by the foreign_key.
-                dependencies.append((model, foreign_key))
-
-        resolved = set(m for m in models if is_free(m, dependencies))
-
-        # Resolve dependencies
-        while resolved:
-            current = resolved.pop()
-            ordering.append(current)
-
-            for dependency in list(dependencies):
-                required, candidate = dependency
-                if issubclass(current, required):
-                    dependencies.remove(dependency)
-                    if is_free(candidate, dependencies):
-                        resolved.add(candidate)
-
-        if dependencies:
-            raise PeeweeException("Models have a cyclic dependency")
-
-        return ordering
 
     def strip_parens(s):
         # Quick sanity check.
@@ -266,6 +226,45 @@ except ImportError:
         if ct > 0:
             return s[ct:-ct]
         return s
+
+def sort_models_topologically(models):
+    """Sort models topologically so that parents will precede children."""
+    ordering = []
+    dependencies = []
+
+    def is_free(model, dependencies):
+        for _, m in dependencies:
+            if issubclass(m, model):
+                return False
+        return True
+
+    # Collect dependencies
+    for model in models:
+        foreign_keys = set(fk.model_class for fk in model._meta.reverse_rel.values()
+                            if not issubclass(fk.model_class, model))
+        for foreign_key in foreign_keys:
+            # Note: we are looking at reverse relationship,
+            # hence model is needed by the foreign_key.
+            dependencies.append((model, foreign_key))
+
+    resolved = set(m for m in models if is_free(m, dependencies))
+
+    # Resolve dependencies
+    while resolved:
+        current = resolved.pop()
+        ordering.append(current)
+
+        for dependency in list(dependencies):
+            required, candidate = dependency
+            if issubclass(current, required):
+                dependencies.remove(dependency)
+                if is_free(candidate, dependencies):
+                    resolved.add(candidate)
+
+    if dependencies:
+        raise PeeweeException("Models have a cyclic dependency")
+
+    return ordering
 
 try:
     from playhouse._speedups import _DictQueryResultWrapper
