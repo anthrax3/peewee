@@ -10,6 +10,8 @@ f = open(os.path.join(os.path.dirname(__file__), 'README.rst'))
 readme = f.read()
 f.close()
 
+is_pypy = '__pypy__' in sys.builtin_module_names
+
 cython_min = '0.22.1'
 try:
     from Cython.Distutils import build_ext
@@ -28,8 +30,11 @@ extensions = (
                                'playhouse/_sqlite_ext.c')),
 )
 
-ext_modules = [Extension(module, [pyx if cython_installed else c])
-               for module, (pyx, c) in extensions]
+if not is_pypy:
+    ext_modules = [Extension(module, [pyx if cython_installed else c])
+                for module, (pyx, c) in extensions]
+else:
+    ext_modules = []
 
 setup(
     name='peewee',
